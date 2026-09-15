@@ -376,6 +376,135 @@ class RunnerTests(unittest.TestCase):
             installed_handlers[0](run.signal.SIGTERM, None)
         self.assertEqual(run.signal.getsignal(run.signal.SIGTERM), previous_handler)
 
+    def xp_scenario(self):
+        return run.read_json(Path(__file__).parent / 'scenarios' / 'xp-rates.json')
+
+    def test_malformed_config_variants_and_comparisons_fail_validation(self):
+        for change in (
+            lambda s: s.update(config={}),
+            lambda s: s.update(config={'CoAGameplayTest.Enable': 0}),
+            lambda s: s.update(config={'Rate XP': 1}),
+            lambda s: s.update(config={'Rate.XP.Explore': True}),
+            lambda s: s.update(config={'Rate.XP.Explore': 'a"b'}),
+            lambda s: s.update(config={'Rate.XP.Kill': 2}),
+            lambda s: s.update(variants=s['variants'][:1]),
+            lambda s: s['variants'][1].update(name='rate_1'),
+            lambda s: s['variants'][1].update(extra=1),
+            lambda s: s.pop('variants'),
+            lambda s: s['compare'][0].update(snapshot='missing'),
+            lambda s: s['compare'][0].update(variant='rate_1'),
+            lambda s: s['compare'][0].pop('equals'),
+            lambda s: s['steps'].append({'action': 'assert', 'actor': 'golem', 'metric': 'xp', 'equals': 0}),
+        ):
+            scenario = self.xp_scenario()
+            change(scenario)
+            with self.subTest(scenario=scenario), self.assertRaises(ValueError):
+                run.validate(scenario)
+
+    def test_loaded_config_must_match_scenario_config(self):
+        scenario = copy.deepcopy(self.scenario)
+        scenario['config'] = {'Rate.XP.Kill': 10}
+        report = self.report()
+        with self.assertRaisesRegex(ValueError, 'config'):
+            run.check_report(report, report['run_id'], scenario, 0)
+        report['config'] = {'Rate.XP.Kill': '1'}
+        with self.assertRaisesRegex(ValueError, 'config'):
+            run.check_report(report, report['run_id'], scenario, 0)
+        report['config'] = {'Rate.XP.Kill': '10'}
+        run.check_report(report, report['run_id'], scenario, 0)
+
+    def execute_with_config(self, directory, settings, environment=None):
+        worldserver = directory / 'worldserver'
+        worldserver.write_bytes(b'binary')
+        config = directory / 'worldserver.conf'
+        config.write_text(
+            'LoginDatabaseInfo = "127.0.0.1;3306;user;password;source_auth"\n'
+            'CharacterDatabaseInfo = "127.0.0.1;3306;user;password;source_characters"\n'
+            'WorldDatabaseInfo = "127.0.0.1;3306;user;password;source_world"\n'
+            'Rate.XP.Kill = 1\n')
+        (directory / 'mysql').write_bytes(b'')
+        (directory / 'modules').mkdir(exist_ok=True)
+        args = SimpleNamespace(
+            worldserver=worldserver, config=config, mysql=directory / 'mysql', mysqldump=directory / 'mysql',
+            database_client_config=None, modules_config_dir=None, server_modules_dir=directory / 'server-modules',
+            output=directory / 'output', startup_timeout=3)
+        scenario = copy.deepcopy(self.scenario)
+        scenario['config'] = settings
+        report = self.report()
+        report['config'] = {key: str(value) for key, value in settings.items()}
+        seen = {}
+
+        def fake_run_process(command, *a, **kw):
+            seen['config'] = run.read_config(Path(command[2]))
+            seen['environment'] = a[-1] if len(a) > 6 else kw.get('environment')
+            return report, 0
+
+        with patch.object(run.secrets, 'token_hex', return_value='012345abcdef'), \
+                patch.dict(run.os.environ, environment or {}), \
+                patch.object(run.Databases, 'prepare', lambda self: None), \
+                patch.object(run.Databases, 'cleanup', lambda self: []), \
+                patch.object(run, 'run_process', side_effect=fake_run_process):
+            code = run.execute(args, scenario)
+        return code, seen, args.output
+
+    def test_scenario_config_is_written_and_not_replaced_by_environment(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            code, seen, _ = self.execute_with_config(Path(temporary), {'Rate.XP.Kill': 10},
+                                                     {'AC_RATE_XP_KILL': '3'})
+        self.assertEqual(code, 0)
+        self.assertEqual(seen['config']['Rate.XP.Kill'], '10')
+        self.assertNotIn('AC_RATE_XP_KILL', seen['environment'])
+
+    def test_scenario_config_cannot_override_harness_controls(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            code, seen, output = self.execute_with_config(Path(temporary), {'BindIP': '0.0.0.0'})
+            summary = json.loads((output / 'summary.json').read_text())
+        self.assertEqual(code, 1)
+        self.assertNotIn('config', seen)
+        self.assertIn('harness controls', summary['message'])
+
+    def run_variants(self, values):
+        """Run the XP scenario's variants with a fake execute that reports the given snapshot values."""
+        scenario = self.xp_scenario()
+        calls = []
+
+        def fake_execute(args, variant_scenario):
+            calls.append(variant_scenario)
+            name = variant_scenario['name'].rsplit('[', 1)[1].rstrip(']')
+            args.output.mkdir(parents=True)
+            records = [{'index': str(index), 'action': step['action'],
+                        'actual': str(values[name].get(step.get('save_as'), 0))}
+                       for index, step in enumerate(variant_scenario['steps'])]
+            (args.output / 'result.json').write_text(json.dumps({'steps': records}))
+            return 0
+
+        with tempfile.TemporaryDirectory() as temporary:
+            args = SimpleNamespace(output=Path(temporary) / 'output')
+            with patch.object(run, 'execute', side_effect=fake_execute), \
+                    patch('sys.stdout', new_callable=io.StringIO):
+                code = run.execute_variants(args, scenario)
+            summary = json.loads((args.output / 'summary.json').read_text())
+        return code, summary, calls
+
+    def test_variants_run_with_merged_config_and_compare_snapshots(self):
+        code, summary, calls = self.run_variants({
+            'rate_1': {'kill_xp': 105, 'quest_xp': 450}, 'rate_10': {'kill_xp': 1050, 'quest_xp': 4500}})
+        self.assertEqual(code, 0)
+        self.assertEqual([call['config'] for call in calls],
+                         [{'Rate.XP.Kill': 1, 'Rate.XP.Quest': 1}, {'Rate.XP.Kill': 10, 'Rate.XP.Quest': 10}])
+        self.assertTrue(all('variants' not in call and 'compare' not in call for call in calls))
+        self.assertEqual(summary['status'], 'passed')
+        self.assertEqual([check['ratio'] for check in summary['comparisons']], [10, 10])
+
+    def test_variant_comparison_failures_fail_the_run(self):
+        for values in ({'rate_1': {'kill_xp': 105, 'quest_xp': 450}, 'rate_10': {'kill_xp': 105, 'quest_xp': 4500}},
+                       {'rate_1': {'kill_xp': 0, 'quest_xp': 450}, 'rate_10': {'kill_xp': 0, 'quest_xp': 4500}}):
+            with self.subTest(values=values):
+                code, summary, _ = self.run_variants(values)
+                self.assertEqual(code, 1)
+                self.assertEqual(summary['status'], 'failed')
+                self.assertEqual(summary['comparisons'][0]['status'], 'failed')
+
 
 if __name__ == '__main__':
     unittest.main()

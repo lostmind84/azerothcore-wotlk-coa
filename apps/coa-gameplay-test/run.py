@@ -3,6 +3,7 @@
 
 import argparse
 import configparser
+import copy
 from dataclasses import dataclass, field
 import hashlib
 import json
@@ -30,8 +31,14 @@ METRICS = {
     'knows_spell', 'has_talent', 'talent_points', 'cooldown_ms', 'item_count', 'bank_bag_slots',
     'pet_entry', 'pet_aura_stacks', 'owned_creature_count',
     'charm_entry', 'charm_aura_stacks', 'controls_self', 'private_instance',
-    'dynamic_object', 'dynamic_object_duration_ms',
+    'dynamic_object', 'dynamic_object_duration_ms', 'xp',
 }
+PLAYER_METRICS = {
+    'knows_spell', 'has_talent', 'talent_points', 'cooldown_ms', 'item_count', 'bank_bag_slots',
+    'pet_entry', 'pet_aura_stacks', 'owned_creature_count', 'charm_entry', 'charm_aura_stacks',
+    'controls_self', 'private_instance', 'dynamic_object', 'dynamic_object_duration_ms', 'xp',
+}
+SETTING_NAME = re.compile(r'[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)*\Z')
 METRIC_FIELDS = {'actor', 'metric', 'spell', 'power', 'caster', 'effect', 'item', 'entry', 'relative_to'}
 ACTIONS = {
     'console': ({'command'}, {'command'}),
@@ -85,7 +92,8 @@ def read_json(path):
 
 def validate(scenario):
     keys(scenario, {'schema', 'name', 'players', 'steps'},
-         {'schema', 'name', 'players', 'creatures', 'steps', 'timeout_ms', 'location', 'contract'}, 'scenario')
+         {'schema', 'name', 'players', 'creatures', 'steps', 'timeout_ms', 'location', 'contract', 'config',
+          'variants', 'compare'}, 'scenario')
     require(type(scenario['schema']) is int and scenario['schema'] == 1, 'Unsupported scenario schema')
     require(isinstance(scenario['name'], str) and scenario['name'].strip(), 'Scenario needs a name')
     number(scenario.get('timeout_ms', 90000), 'timeout_ms', 1, 600000, True)
@@ -183,10 +191,7 @@ def validate(scenario):
             if metric == 'owned_creature_count':
                 require('entry' in step, f'{where}: metric needs creature entry')
                 require('caster' not in step or 'spell' in step, f'{where}: aura caster filter needs spell')
-            if metric in {'knows_spell', 'has_talent', 'talent_points', 'cooldown_ms', 'item_count', 'bank_bag_slots',
-                          'pet_entry', 'pet_aura_stacks', 'owned_creature_count', 'charm_entry',
-                          'charm_aura_stacks', 'controls_self', 'private_instance',
-                          'dynamic_object', 'dynamic_object_duration_ms'}:
+            if metric in PLAYER_METRICS:
                 require(step['actor'] in player_ids, f'{where}: metric needs a player')
             if 'relative_to' in step:
                 require(snapshots.get(step['relative_to']) == metric, f'{where}: missing or incompatible snapshot')
@@ -197,16 +202,65 @@ def validate(scenario):
                 snapshots[name] = metric
             else:
                 assertions += 1
-                require(any(key in step for key in ('equals', 'min', 'max')), f'{where}: no expected value')
-                for key in ('equals', 'min', 'max'):
-                    if key in step:
-                        number(step[key], f'{where}.{key}')
-                require(step.get('min', -math.inf) <= step.get('max', math.inf), f'{where}: reversed range')
-                if 'equals' in step:
-                    require(step.get('min', -math.inf) <= step['equals'] <= step.get('max', math.inf),
-                            f'{where}: contradictory assertion')
+                expected_range(step, where)
     require(assertions > 0, 'Scenario must contain assertions')
+    if 'config' in scenario:
+        settings(scenario['config'], 'config')
+    variants = scenario.get('variants', [])
+    require('variants' not in scenario or (isinstance(variants, list) and 2 <= len(variants) <= 8),
+            'Expected 2..8 variants')
+    variant_names = set()
+    for variant in variants:
+        keys(variant, {'name', 'config'}, {'name', 'config'}, 'variant')
+        name = variant['name']
+        require(isinstance(name, str) and ACTOR_ID.fullmatch(name) and name not in variant_names,
+                'Invalid or duplicate variant name')
+        variant_names.add(name)
+        settings(variant['config'], f'variant {name}')
+        require(not variant['config'].keys() & scenario.get('config', {}).keys(),
+                f'variant {name}: setting already in scenario config')
+    comparisons = scenario.get('compare', [])
+    require('compare' not in scenario or (variant_names and isinstance(comparisons, list)
+                                          and 1 <= len(comparisons) <= 32),
+            'compare needs variants and 1..32 checks')
+    for index, check in enumerate(comparisons):
+        where = f'compare {index}'
+        keys(check, {'snapshot', 'variant', 'baseline'},
+             {'snapshot', 'variant', 'baseline', 'label', 'equals', 'min', 'max'}, where)
+        require(check['snapshot'] in snapshots, f'{where}: unknown snapshot')
+        require({check['variant'], check['baseline']} <= variant_names and check['variant'] != check['baseline'],
+                f'{where}: needs two different variants')
+        expected_range(check, where)
     return scenario
+
+
+def expected_range(check, where):
+    require(any(key in check for key in ('equals', 'min', 'max')), f'{where}: no expected value')
+    for key in ('equals', 'min', 'max'):
+        if key in check:
+            number(check[key], f'{where}.{key}')
+    require(check.get('min', -math.inf) <= check.get('max', math.inf), f'{where}: reversed range')
+    if 'equals' in check:
+        require(check.get('min', -math.inf) <= check['equals'] <= check.get('max', math.inf),
+                f'{where}: contradictory assertion')
+
+
+def in_range(actual, check):
+    return (math.isfinite(actual) and ('equals' not in check or actual == check['equals'])
+            and ('min' not in check or actual >= check['min']) and ('max' not in check or actual <= check['max']))
+
+
+def settings(values, where):
+    """Validate worldserver settings a scenario applies; the runner rejects harness-owned names at run time."""
+    require(isinstance(values, dict) and 1 <= len(values) <= 32, f'{where}: expected 1..32 settings')
+    for key, value in values.items():
+        require(SETTING_NAME.fullmatch(key) and not key.startswith('CoAGameplayTest.'),
+                f'{where}: invalid setting name {key}')
+        if isinstance(value, str):
+            require('"' not in value and '\n' not in value and '\r' not in value,
+                    f'{where}.{key}: unsupported characters')
+        else:
+            number(value, f'{where}.{key}')
 
 
 def read_config(path):
@@ -480,7 +534,9 @@ def check_report(report, run_id, scenario, returncode):
     require(report.get('execution') == 'socketless-session-handlers', 'Unexpected execution mode')
     require(report.get('status') == 'passed', report.get('message', 'Scenario failed'))
     require(returncode == 0, f'Worldserver exited with code {returncode}')
-    expected = sum(step['action'] == 'assert' for step in scenario['steps'])
+    require(report.get('config', {}) == {key: str(value) for key, value in scenario.get('config', {}).items()},
+            'Worldserver did not load the scenario config values')
+    expected =sum(step['action'] == 'assert' for step in scenario['steps'])
     require(int(report.get('assertions', 0)) == expected, 'Not all assertions ran')
     require(int(report.get('completed_steps', 0)) == len(scenario['steps']), 'Scenario did not complete')
     records = report.get('steps', [])
@@ -596,6 +652,10 @@ def execute(args, scenario):
             'CoAGameplayTest.ReadyFile': ready_path.as_posix(),
             'CoAGameplayTest.ResultFile': result_path.as_posix(),
         }
+        scenario_settings = scenario.get('config', {})
+        require(not scenario_settings.keys() & overrides.keys(), 'Scenario config overrides harness controls')
+        # Scenario settings join the generated values: module configs and AC_* variables cannot replace them.
+        overrides.update(scenario_settings)
         module_source = args.modules_config_dir or source_config.parent / 'modules'
         # Windows worldservers read configs/modules relative to their working directory, the output directory.
         module_target = args.server_modules_dir or output / 'configs' / 'modules'
@@ -629,6 +689,48 @@ def execute(args, scenario):
     return 0 if summary['status'] == 'passed' else 1
 
 
+def execute_variants(args, scenario):
+    """Run the scenario once per variant, each in its own isolated server, then compare named snapshots."""
+    output = (args.output or ROOT / '.cache' / 'coa-gameplay-tests' / secrets.token_hex(6)).resolve()
+    output.mkdir(parents=True, exist_ok=False)
+    base = {key: value for key, value in scenario.items() if key not in {'variants', 'compare'}}
+    summary = {'schema': 1, 'scenario': scenario['name'], 'status': 'failed', 'variants': {}, 'comparisons': []}
+    snapshots = {}
+    try:
+        for variant in scenario['variants']:
+            name = variant['name']
+            variant_scenario = dict(base, name=f"{scenario['name']} [{name}]",
+                                    config={**base.get('config', {}), **variant['config']})
+            variant_args = copy.copy(args)
+            variant_args.output = output / name
+            passed = execute(variant_args, variant_scenario) == 0
+            summary['variants'][name] = 'passed' if passed else 'failed'
+            if passed:
+                records = read_json(variant_args.output / 'result.json')['steps']
+                snapshots[name] = {step['save_as']: float(record['actual'])
+                                   for step, record in zip(variant_scenario['steps'], records)
+                                   if step['action'] == 'snapshot'}
+        if len(snapshots) < len(scenario['variants']):
+            summary['message'] = 'A variant failed; snapshots were not compared'
+        for check in scenario.get('compare', []) if 'message' not in summary else []:
+            baseline = snapshots[check['baseline']][check['snapshot']]
+            value = snapshots[check['variant']][check['snapshot']]
+            ratio = value / baseline if baseline else None
+            summary['comparisons'].append({
+                'label': check.get('label', check['snapshot']), 'snapshot': check['snapshot'],
+                'variant': check['variant'], 'baseline': check['baseline'], 'variant_value': value,
+                'baseline_value': baseline, 'ratio': ratio,
+                'status': 'passed' if ratio is not None and in_range(ratio, check) else 'failed'})
+            print(f"{summary['comparisons'][-1]['status'].upper()}: {summary['comparisons'][-1]['label']} "
+                  f"({check['variant']} {value:g} / {check['baseline']} {baseline:g})")
+        if 'message' not in summary and all(check['status'] == 'passed' for check in summary['comparisons']):
+            summary['status'] = 'passed'
+    finally:
+        (output / 'summary.json').write_text(json.dumps(summary, indent=2) + '\n', encoding='utf-8')
+    print(f"{summary['status'].upper()}: {scenario['name']}\nResults: {output}")
+    return 0 if summary['status'] == 'passed' else 1
+
+
 def _raise_keyboard_interrupt(signum, frame):
     """SIGTERM handler: route the ordinary Compose/`docker stop` signal through the existing interrupt cleanup."""
     raise KeyboardInterrupt
@@ -658,7 +760,8 @@ def main(argv=None):
     try:
         scenario = validate(read_json(args.scenario))
         if args.command == 'validate':
-            print(f"Valid scenario: {scenario['name']} ({len(scenario['steps'])} steps)")
+            variants = f", {len(scenario['variants'])} variants" if 'variants' in scenario else ''
+            print(f"Valid scenario: {scenario['name']} ({len(scenario['steps'])} steps{variants})")
             return 0
         require(math.isfinite(args.startup_timeout) and args.startup_timeout > 0, 'Invalid startup timeout')
         require(args.server_modules_dir or os.name == 'nt',
@@ -666,7 +769,7 @@ def main(argv=None):
         if hasattr(signal, 'SIGTERM'):
             previous_sigterm_handler = signal.signal(signal.SIGTERM, _raise_keyboard_interrupt)
             sigterm_installed = True
-        return execute(args, scenario)
+        return execute_variants(args, scenario) if 'variants' in scenario else execute(args, scenario)
     except (ValueError, OSError, KeyError, TypeError) as error:
         print(f'ERROR: {error}', file=sys.stderr)
         return 1

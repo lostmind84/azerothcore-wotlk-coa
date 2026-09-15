@@ -119,6 +119,28 @@ The [Shadow Effigy scenario](scenarios/shadow-effigy.json) checks combat casts, 
 nearby-enemy debuffs, replacement by another effigy and timed despawn.
 The [Dusk Blade scenario](scenarios/dusk-blade.json) checks dual-wield damage, Rage spending and healing
 the wounded caster across repeated melee casts.
+The [XP rates scenario](scenarios/xp-rates.json) compares the experience of one kill and one quest reward with
+`Rate.XP.Kill`/`Rate.XP.Quest` at 1 and at 10 (issue #193).
+
+### Server settings and variants
+
+Optional `config` maps worldserver setting names to numbers or strings (up to 32), for example
+`{ "Rate.XP.Kill": 10 }`. The runner writes them into the generated `worldserver.conf`, so the server reads them
+through its normal startup configuration path. Like the generated harness values, they cannot be replaced by
+module configs or inherited `AC_*` variables, and they cannot name harness-owned settings (database connections,
+`BindIP`, `DataDir`, `CoAGameplayTest.*`, ...). `result.json` echoes each setting as the server's config manager
+read it, and the runner fails the run when an echoed value differs.
+
+Optional `variants` (2..8) run the same players, creatures and steps once per variant, each in its own isolated
+server with the variant's `config` added to the scenario's (a variant cannot repeat a scenario setting). Each
+variant writes a normal result directory under `<output>/<variant name>/`; a top-level `summary.json` lists the
+variant outcomes and comparisons. Optional `compare` (1..32 checks, requires variants) divides a named snapshot in
+`variant` by the same snapshot in `baseline` and checks the ratio with `equals`/`min`/`max`. A zero baseline fails
+the check. Comparisons only run when every variant passed. Each variant repeats the database copy and server
+startup, so a two-variant scenario takes about twice as long.
+
+When calling console commands on a player, fixture characters are named `Harnessa`, `Harnessb`, ... in the order
+of `players`, for example `quest add 46 Harnessa`.
 
 Players require `id`, numeric `race` and `class`; `level` defaults to 80. Optional `spell_hit_rating`,
 `ranged_hit_rating`, `melee_hit_rating` and `expertise_rating` add the corresponding fixture rating through
@@ -164,7 +186,7 @@ Metrics: `health`, `max_health`, `power`, `max_power`, `alive`, `combat`, `casti
 `has_talent`, `talent_points`, `cooldown_ms`, `item_count`, `bank_bag_slots`, `aura`, `aura_stacks`, `aura_charges`,
 `aura_duration_ms`, `aura_amount`, `pet_entry`, `pet_aura_stacks`, `owned_creature_count`,
 `charm_entry`, `charm_aura_stacks`, `controls_self`, `private_instance`, `dynamic_object`,
-`dynamic_object_duration_ms`.
+`dynamic_object_duration_ms`, `xp`.
 Boolean metrics use 0/1. Spell/aura metrics require `spell`; `item_count` requires `item`.
 `has_talent` requires the talent rank's spell ID; passive talents are separate from the learned spellbook.
 `talent_points` measures unspent points in the active specialization.

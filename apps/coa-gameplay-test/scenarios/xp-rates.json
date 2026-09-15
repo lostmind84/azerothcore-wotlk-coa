@@ -1,0 +1,62 @@
+{
+  "schema": 1,
+  "name": "XP rates: Rate.XP.Kill and Rate.XP.Quest scale kill and quest experience",
+  "contract": "Issue #193. The same creature kill and quest reward grant ten times more experience with Rate.XP.Kill and Rate.XP.Quest at 10 than at 1. The fixture has no rested, group, aura or damage-share modifiers, and quest XP is rounded before the rate applies, so both ratios are exact. Base XP values are untested.",
+  "timeout_ms": 90000,
+  "variants": [
+    { "name": "rate_1", "config": { "Rate.XP.Kill": 1, "Rate.XP.Quest": 1 } },
+    { "name": "rate_10", "config": { "Rate.XP.Kill": 10, "Rate.XP.Quest": 10 } }
+  ],
+  "players": [
+    { "id": "hero", "race": 1, "class": 8, "level": 15, "spell_hit_rating": 10000 }
+  ],
+  "creatures": [
+    { "id": "golem", "owner": "hero", "entry": 36, "level": 15, "health": 10, "distance": 10 }
+  ],
+  "steps": [
+    { "action": "wait", "label": "Let spawn AI and local level scaling settle", "ms": 5000 },
+    { "action": "learn", "actor": "hero", "spell": 42842 },
+    { "action": "snapshot", "actor": "hero", "metric": "level", "save_as": "level_start" },
+    {
+      "action": "assert", "label": "Local level scaling leaves the creature killable by two Frostbolts",
+      "actor": "golem", "metric": "max_health", "max": 1000
+    },
+    { "action": "snapshot", "actor": "hero", "metric": "xp", "save_as": "xp_before_kill" },
+    { "action": "cast", "actor": "hero", "spell": 42842, "target": "golem" },
+    { "action": "wait", "ms": 3500 },
+    { "action": "cast", "label": "Second Frostbolt if the first was resisted", "actor": "hero", "spell": 42842,
+      "target": "golem" },
+    {
+      "action": "assert", "label": "Frostbolt kills the creature", "actor": "golem",
+      "metric": "alive", "equals": 0, "within_ms": 8000
+    },
+    {
+      "action": "assert", "label": "Kill grants experience", "actor": "hero",
+      "metric": "xp", "relative_to": "xp_before_kill", "min": 1, "within_ms": 2000
+    },
+    { "action": "snapshot", "actor": "hero", "metric": "xp", "relative_to": "xp_before_kill", "save_as": "kill_xp" },
+    { "action": "snapshot", "actor": "hero", "metric": "xp", "save_as": "xp_before_quest" },
+    { "action": "console", "label": "Add Bounty on Murlocs", "command": "quest add 46 Harnessa" },
+    { "action": "console", "label": "Complete its objectives", "command": "quest complete 46 Harnessa" },
+    { "action": "console", "label": "Reward the quest", "command": "quest reward 46 Harnessa" },
+    {
+      "action": "assert", "label": "Quest reward grants experience", "actor": "hero",
+      "metric": "xp", "relative_to": "xp_before_quest", "min": 1, "within_ms": 2000
+    },
+    { "action": "snapshot", "actor": "hero", "metric": "xp", "relative_to": "xp_before_quest", "save_as": "quest_xp" },
+    {
+      "action": "assert", "label": "No level-up wrapped the current-level experience", "actor": "hero",
+      "metric": "level", "relative_to": "level_start", "equals": 0
+    }
+  ],
+  "compare": [
+    {
+      "label": "Rate.XP.Kill 10 grants ten times the kill experience", "snapshot": "kill_xp",
+      "variant": "rate_10", "baseline": "rate_1", "equals": 10
+    },
+    {
+      "label": "Rate.XP.Quest 10 grants ten times the quest experience", "snapshot": "quest_xp",
+      "variant": "rate_10", "baseline": "rate_1", "equals": 10
+    }
+  ]
+}
