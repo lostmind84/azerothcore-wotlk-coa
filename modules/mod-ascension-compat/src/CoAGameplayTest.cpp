@@ -134,6 +134,15 @@ public:
             _report.put("server_version", GitRevision::GetFullVersion());
             _report.put("execution", "socketless-session-handlers");
             _report.put("data_dir", sWorld->GetDataPath());
+            // Echo scenario settings as the server's config manager read them. Setting names contain
+            // dots, so children are appended by name instead of through property-tree paths.
+            if (auto settings = _scenario.get_child_optional("config"))
+            {
+                Tree loaded;
+                for (auto const& setting : *settings)
+                    loaded.push_back({ setting.first, Tree(sConfigMgr->GetOption<std::string>(setting.first, "")) });
+                _report.add_child("config", loaded);
+            }
             _steps = _scenario.get_child("steps");
             Require(!_steps.empty() && _steps.size() <= 10000, "Scenario needs 1..10000 steps");
             _nextStep = _steps.begin();
@@ -447,6 +456,8 @@ private:
         }
         if (metric == "talent_points")
             return player->GetFreeTalentPoints();
+        if (metric == "xp")
+            return player->GetUInt32Value(PLAYER_XP);
         if (metric == "bank_bag_slots")
             return player->GetBankBagSlotCount();
         if (metric == "private_instance")
