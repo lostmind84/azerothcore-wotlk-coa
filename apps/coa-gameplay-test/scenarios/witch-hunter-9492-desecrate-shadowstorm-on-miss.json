@@ -3,6 +3,7 @@
   "name": "Casting Desecrate always triggers Shadowstorm, even when the cone misses everything (#9492)",
   "contract": "Shadowstorm 520277's Description reads 'Casting Desecrate always triggers Shadowstorm', an unconditional cast-gated clause contrasted against the damage-chance-gated Pommel Smash clause in the same tooltip. Before the fix, the trigger ran through the native spell_proc dispatcher (HitMask 9283: normal/crit/block/absorb/full-block only, excluding miss/dodge/parry) and a C++ Direct(event) check requiring nonzero damage, so a Desecrate cone that connected with nothing never produced a Shadowstorm. Desecrate (680518) is SPELL_DAMAGE_CLASS_MELEE, so its hit roll resolves through Unit::MeleeSpellHitResult (dodge/parry/miss tables), not the magic hit-chance path; forcing a deterministic dodge needs QA Test 100% Dodge 10020 (SPELL_AURA_MOD_DODGE_PERCENT) on the victim, and set_aura only resolves a player actor, so the target is a second PvP-flagged, opposing-faction player ('defender', an Undead, so a same-faction 'target_friendly' Human pair does not need a duel) rather than a fixture creature. The trigger is gated on the Shadowstorm talent/passive 520277 itself: a Witch Hunter who never learned it must cast Desecrate without ever producing a Shadowstorm.",
   "timeout_ms": 90000,
+  "location": { "map": 0, "x": -8917.41, "y": -115.853, "z": 82.3711, "o": 0 },
   "players": [
     { "id": "wh", "race": 1, "class": 15, "level": 60 },
     { "id": "defender", "race": 5, "class": 12, "level": 60 }
