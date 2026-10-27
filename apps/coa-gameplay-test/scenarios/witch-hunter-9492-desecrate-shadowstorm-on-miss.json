@@ -10,6 +10,7 @@
   ],
   "steps": [
     { "action": "wait", "label": "Let level scaling settle", "ms": 5000 },
+    { "action": "teleport", "label": "Stand the defender 3 yd in front of the Witch Hunter, inside Desecrate's cone", "actor": "defender", "map": 0, "x": -8914.41, "y": -115.853, "z": 82.3711, "o": 3.14159 },
     { "action": "pvp", "actor": "wh", "enabled": true },
     { "action": "pvp", "actor": "defender", "enabled": true },
     { "action": "learn", "actor": "wh", "spell": 202 },
