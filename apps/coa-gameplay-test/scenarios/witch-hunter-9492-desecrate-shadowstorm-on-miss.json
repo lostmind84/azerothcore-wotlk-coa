@@ -96,7 +96,7 @@
   },
   {
    "action": "set_aura",
-   "label": "Control cast: grant the avoided-attack aura",
+   "label": "Control cast 1: grant the avoided-attack aura",
    "actor": "wh",
    "spell": 803166,
    "stacks": 1
@@ -114,25 +114,84 @@
   },
   {
    "action": "cast",
-   "label": "Cast Desecrate without the Shadowstorm talent",
+   "label": "Cast Desecrate without the Shadowstorm talent (1)",
    "actor": "wh",
    "spell": 680518,
    "target": "defender"
   },
   {
+   "action": "wait",
+   "label": "Let the hit resolve and the global cooldown pass",
+   "ms": 1700
+  },
+  {
+   "action": "set_aura",
+   "label": "Control cast 2: grant the avoided-attack aura",
+   "actor": "wh",
+   "spell": 803166,
+   "stacks": 1
+  },
+  {
+   "action": "reset_cooldown",
+   "actor": "wh",
+   "spell": 680518
+  },
+  {
+   "action": "set_power",
+   "actor": "wh",
+   "power": 1,
+   "value": 1000
+  },
+  {
+   "action": "cast",
+   "label": "Cast Desecrate without the Shadowstorm talent (2)",
+   "actor": "wh",
+   "spell": 680518,
+   "target": "defender"
+  },
+  {
+   "action": "wait",
+   "label": "Let the hit resolve and the global cooldown pass",
+   "ms": 1700
+  },
+  {
+   "action": "set_aura",
+   "label": "Control cast 3: grant the avoided-attack aura",
+   "actor": "wh",
+   "spell": 803166,
+   "stacks": 1
+  },
+  {
+   "action": "reset_cooldown",
+   "actor": "wh",
+   "spell": 680518
+  },
+  {
+   "action": "set_power",
+   "actor": "wh",
+   "power": 1,
+   "value": 1000
+  },
+  {
+   "action": "cast",
+   "label": "Cast Desecrate without the Shadowstorm talent (3)",
+   "actor": "wh",
+   "spell": 680518,
+   "target": "defender"
+  },
+  {
+   "action": "wait",
+   "label": "Let the hit resolve and the global cooldown pass",
+   "ms": 1700
+  },
+  {
    "action": "assert",
-   "label": "CONTROL: Desecrate hits the defender",
+   "label": "CONTROL: at least one of three Desecrate casts lands a real hit (base avoidance alone is not deterministic)",
    "actor": "wh",
    "metric": "spell_damage_count",
    "spell": 680518,
    "target": "defender",
-   "min": 1,
-   "within_ms": 1500
-  },
-  {
-   "action": "wait",
-   "label": "Let any Shadowstorm cast that would fire resolve",
-   "ms": 1500
+   "min": 1
   },
   {
    "action": "assert",
@@ -161,6 +220,53 @@
    "metric": "aura",
    "spell": 520277,
    "equals": 1
+  },
+  {
+   "action": "snapshot",
+   "actor": "wh",
+   "metric": "spell_go_count",
+   "spell": 520278,
+   "save_as": "sanity_go"
+  },
+  {
+   "action": "set_aura",
+   "label": "SANITY: grant the avoided-attack aura",
+   "actor": "wh",
+   "spell": 803166,
+   "stacks": 1
+  },
+  {
+   "action": "reset_cooldown",
+   "actor": "wh",
+   "spell": 680518
+  },
+  {
+   "action": "set_power",
+   "actor": "wh",
+   "power": 1,
+   "value": 1000
+  },
+  {
+   "action": "cast",
+   "label": "SANITY: cast Desecrate with the talent present",
+   "actor": "wh",
+   "spell": 680518,
+   "target": "defender"
+  },
+  {
+   "action": "assert",
+   "label": "SANITY: casting Desecrate with the talent present triggers Shadowstorm (hit or not)",
+   "actor": "wh",
+   "metric": "spell_go_count",
+   "spell": 520278,
+   "relative_to": "sanity_go",
+   "min": 1,
+   "within_ms": 1500
+  },
+  {
+   "action": "wait",
+   "label": "Let the global cooldown pass",
+   "ms": 2000
   },
   {
    "action": "set_aura",
