@@ -99,7 +99,12 @@ class witch_hunter_casts : public AllSpellScript
     void OnSpellCast(Spell* spell, Unit* caster, SpellInfo const* info, bool) override
     {
         Player* player = Owner(caster);
-        if (!player || !spell->IsTriggered())
+        if (!player)
+            return;
+        if (!spell->IsTriggered() && Desecrate(info))
+            if (Unit* target = spell->m_targets.GetUnitTarget())
+                Cast(player, target, SPELL_SHADOWSTORM_DAMAGE);
+        if (!spell->IsTriggered())
             return;
         SpellInfo const* channel = spell->GetTriggeredByAuraSpellInfo();
         if (!channel)
