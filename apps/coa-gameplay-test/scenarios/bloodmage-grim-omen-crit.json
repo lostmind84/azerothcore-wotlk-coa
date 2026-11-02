@@ -1,0 +1,181 @@
+{
+  "schema": 1,
+  "name": "Grim Omen calls the Darkwing on a critical Bloodfang Bite (#3174)",
+  "contract": "Grim Omen 800154 reads 'Critical strikes with Ravenous Strike or Bloodfang Bite, or using Howl spells, now triggers Call of the Darkwing'. The implementation (spell_proc row plus aura_ascension_bloodmage_grim_omen in AscensionBloodmageProcs.cpp, #4513) narrows the proc to PROC_SPELL_PHASE_HIT with PROC_HIT_CRITICAL for the strike family and PROC_SPELL_PHASE_CAST for Howls. bloodmage-grim-omen-howl covers the Howl clause; the critical-strike clause stayed unproven because the fixture had no melee critical strike control. The harness now applies melee_crit_rating through the native rating calculation, so a Bloodfang Bite 800156 (DmgClass MELEE, SpellFamilyFlags (0, 8388608, 0), CasterAuraSpell 525031) can be forced to crit deterministically. Ravenous Strike is not used here because SPELL_ATTR3_REQUIRES_MAIN_HAND_WEAPON makes it uncastable for an unarmed fixture. A control player with the same forced crit but without Grim Omen discriminates the proc: a critical strike alone must not summon.",
+  "timeout_ms": 90000,
+  "players": [
+    {
+      "id": "control",
+      "race": 1,
+      "class": 20,
+      "level": 80,
+      "spell_hit_rating": 10000,
+      "melee_hit_rating": 100000,
+      "expertise_rating": 100000,
+      "melee_crit_rating": 100000
+    },
+    {
+      "id": "omen",
+      "race": 1,
+      "class": 20,
+      "level": 80,
+      "spell_hit_rating": 10000,
+      "melee_hit_rating": 100000,
+      "expertise_rating": 100000,
+      "melee_crit_rating": 100000
+    }
+  ],
+  "creatures": [
+    {
+      "id": "dummy_control",
+      "owner": "control",
+      "entry": 36,
+      "health": 1000000,
+      "distance": 3
+    },
+    {
+      "id": "dummy_omen",
+      "owner": "omen",
+      "entry": 36,
+      "health": 1000000,
+      "distance": 3
+    }
+  ],
+  "steps": [
+    {
+      "action": "wait",
+      "label": "Let spawn AI and level scaling settle",
+      "ms": 5000
+    },
+    {
+      "action": "set_aura",
+      "label": "Fixture the Cursed Form marker Bloodfang Bite requires",
+      "actor": "control",
+      "spell": 525031,
+      "stacks": 1
+    },
+    {
+      "action": "set_aura",
+      "label": "Fixture the Cursed Form marker Bloodfang Bite requires",
+      "actor": "omen",
+      "spell": 525031,
+      "stacks": 1
+    },
+    {
+      "action": "learn",
+      "actor": "control",
+      "spell": 800156
+    },
+    {
+      "action": "learn",
+      "actor": "omen",
+      "spell": 800156
+    },
+    {
+      "action": "learn",
+      "actor": "omen",
+      "spell": 800154
+    },
+    {
+      "action": "set_power",
+      "actor": "control",
+      "power": 1,
+      "value": 1000
+    },
+    {
+      "action": "set_power",
+      "actor": "omen",
+      "power": 1,
+      "value": 1000
+    },
+    {
+      "action": "assert",
+      "label": "SETUP: the control has no Grim Omen",
+      "actor": "control",
+      "metric": "aura",
+      "spell": 800154,
+      "equals": 0
+    },
+    {
+      "action": "assert",
+      "label": "SETUP: the Grim Omen passive is active",
+      "actor": "omen",
+      "metric": "aura",
+      "spell": 800154,
+      "equals": 1
+    },
+    {
+      "action": "snapshot",
+      "label": "Shadow Bats owned before the control strike",
+      "actor": "control",
+      "metric": "owned_creature_count",
+      "entry": 50069,
+      "save_as": "bats_control_before"
+    },
+    {
+      "action": "snapshot",
+      "label": "Shadow Bats owned before the critical strike",
+      "actor": "omen",
+      "metric": "owned_creature_count",
+      "entry": 50069,
+      "save_as": "bats_omen_before"
+    },
+    {
+      "action": "cast",
+      "actor": "control",
+      "spell": 800156,
+      "target": "dummy_control"
+    },
+    {
+      "action": "assert",
+      "label": "SETUP: the control strike is a critical hit",
+      "actor": "control",
+      "metric": "spell_damage_count",
+      "spell": 800156,
+      "critical": true,
+      "min": 1,
+      "within_ms": 3000
+    },
+    {
+      "action": "wait",
+      "label": "Leave time for a wrongly granted summon to appear",
+      "ms": 3000
+    },
+    {
+      "action": "assert",
+      "label": "DISCRIMINATING: a critical strike without Grim Omen calls nothing",
+      "actor": "control",
+      "metric": "owned_creature_count",
+      "entry": 50069,
+      "relative_to": "bats_control_before",
+      "min": 0,
+      "max": 0
+    },
+    {
+      "action": "cast",
+      "actor": "omen",
+      "spell": 800156,
+      "target": "dummy_omen"
+    },
+    {
+      "action": "assert",
+      "label": "DISCRIMINATING: the strike lands as a critical hit",
+      "actor": "omen",
+      "metric": "spell_damage_count",
+      "spell": 800156,
+      "critical": true,
+      "min": 1,
+      "within_ms": 3000
+    },
+    {
+      "action": "assert",
+      "label": "DISCRIMINATING: the critical strike calls the Darkwing",
+      "actor": "omen",
+      "metric": "owned_creature_count",
+      "entry": 50069,
+      "relative_to": "bats_omen_before",
+      "min": 1,
+      "within_ms": 5000
+    }
+  ]
+}
