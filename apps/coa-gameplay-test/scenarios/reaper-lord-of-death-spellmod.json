@@ -1,0 +1,45 @@
+{
+  "schema": 1,
+  "name": "Lord of Death raises Ghostly Weapon's damage multiplier to 25% (#3490)",
+  "contract": "Lord of Death 805194 is obtainable (CharacterAdvancement level 0, live capture and calculator agree) and reads 'Abilities affected by Ghostly Weapon now deal 25% more damage per additional target'. Its effect 0 is aura 107 (ADD_FLAT_MODIFIER) MiscValue 12 (SPELLMOD_EFFECT2, effect index 1 of the matched spell), BasePoints 24 / DieSides 1 = +25, over classmask (0, 0, 1073741824) which matches Ghostly Weapon 803997's own SpellFamilyFlags (family 36, word 2 bit 30). Ghostly Weapon's effect index 1 is itself an ADD_PCT_MODIFIER on SPELLMOD_DAMAGE_MULTIPLIER with a baseline value of 0, so the native spellmod chain lands exactly the tooltip's flat 25% on the Ghostly Weapon-affected abilities; no handler is required for this half and this scenario guards it. The tooltip's 'per additional target' clause has no representation in the shipped data (PR #5416 recorded this), and effect 2 (aura 42 on the 20% Lord of Death buff 807168) has ProcFlags 0, no spell_proc row and no derivable condition, so that half stays an unresolved expectation rather than invented behavior.",
+  "timeout_ms": 90000,
+  "players": [
+    {
+      "id": "reaper",
+      "race": 1,
+      "class": 30,
+      "level": 80
+    }
+  ],
+  "steps": [
+    {
+      "action": "wait",
+      "label": "Let level scaling settle",
+      "ms": 5000
+    },
+    {
+      "action": "assert",
+      "label": "SETUP: Ghostly Weapon's damage-multiplier modifier is at its 0 baseline",
+      "actor": "reaper",
+      "metric": "spell_effect_value",
+      "spell": 803997,
+      "effect": 1,
+      "equals": 0
+    },
+    {
+      "action": "learn",
+      "actor": "reaper",
+      "spell": 805194
+    },
+    {
+      "action": "assert",
+      "label": "DISCRIMINATING: Lord of Death raises it to 25",
+      "actor": "reaper",
+      "metric": "spell_effect_value",
+      "spell": 803997,
+      "effect": 1,
+      "equals": 25,
+      "within_ms": 2000
+    }
+  ]
+}
